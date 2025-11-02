@@ -1,0 +1,19 @@
+# vscode
+.vscode/
+
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+*.mp3
+*.wav
+*.json
+
+# Virtual environments
+.venv
+
+# Misc.
+.ipynb_checkpoints/

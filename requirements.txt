@@ -1,0 +1,6 @@
+scipy
+asyncio
+fastapi
+torch
+torchaudio
+transformers
