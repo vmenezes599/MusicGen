@@ -63,7 +63,7 @@ def main():
     ap.add_argument("--prompt", type=str, required=True, help="Text prompt for music generation")
     ap.add_argument("--seed", type=int, required=True, help="Random seed for reproducibility")
     ap.add_argument("--output_dir", type=str, default="output", help="Output directory for generated files")
-    ap.add_argument("--seconds", type=float, default=25.0, help="Duration in seconds")
+    ap.add_argument("--seconds", type=float, default=31.0, help="Duration in seconds")
 
     args = ap.parse_args()
 
@@ -124,14 +124,26 @@ def main():
                 sr = model.config.audio_encoder.sampling_rate  # 32000
                 y = to_mono_float(audio)
 
-                # Silence guard
+                # Check audio levels before normalization
                 peak = float(np.max(np.abs(y)))
                 rms_db = dbfs(y)
-                is_silent = (peak < SILENCE_PEAK_THRESH) or (rms_db < SILENCE_RMS_DBFS)
+                logger.info(f"Take {take_idx + 1} - Peak: {peak:.6f}, RMS: {rms_db:.2f} dBFS")
+                
+                # Silence guard - check if truly silent (dead silence, not just quiet)
+                is_dead_silent = (peak < SILENCE_PEAK_THRESH)
+                
+                if is_dead_silent:
+                    logger.warning(f"Take {take_idx + 1} is dead silent (peak < {SILENCE_PEAK_THRESH}), skipping")
+                    take_idx += 1
+                    continue
 
-                # Normalize if not silent, so you can actually hear the bed
-                if not is_silent:
-                    y = peak_normalize(y, NORMALIZE_DBFS)
+                # Always normalize to make audio audible
+                y = peak_normalize(y, NORMALIZE_DBFS)
+                
+                # Log after normalization
+                peak_after = float(np.max(np.abs(y)))
+                rms_db_after = dbfs(y)
+                logger.info(f"After normalization - Peak: {peak_after:.6f}, RMS: {rms_db_after:.2f} dBFS")
 
                 # Convert to torch tensor for torchaudio (expects 2D: [channels, samples])
                 y_tensor = torch.from_numpy(y).float().unsqueeze(0)  # Add channel dimension
