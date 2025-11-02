@@ -1,13 +1,16 @@
 """
 Generate MusicGen-small takes (no loop), with silence-guard + normalization.
 Tested on transformers==4.57.1 (no 'generator' kwarg).
+Subprocess-ready script that generates multiple music takes.
 """
 
 import argparse
 from pathlib import Path
+import sys
+import logging
 import numpy as np
-import scipy.io.wavfile as wav
 import torch
+import torchaudio
 from transformers import AutoProcessor, MusicgenForConditionalGeneration, set_seed
 
 MODEL_ID = "facebook/musicgen-small"
@@ -24,10 +27,8 @@ SILENCE_PEAK_THRESH = 1e-4  # ~-80 dBFS
 SILENCE_RMS_DBFS = -55.0  # reject if quieter than this
 NORMALIZE_DBFS = -3.0  # peak target
 
-
-def float_to_int16(y: np.ndarray) -> np.ndarray:
-    y = np.clip(y, -1.0, 1.0)
-    return (y * 32767.0).astype(np.int16)
+# Set up logger
+logger = logging.getLogger("musicgen_processor")
 
 
 def dbfs(x: np.ndarray) -> float:
@@ -57,67 +58,109 @@ def to_mono_float(audio_tensor: torch.Tensor) -> np.ndarray:
 
 
 def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--prompt", type=str, required=True)
-    ap.add_argument("--seed", type=int, action="append")
-    # ap.add_argument("--seconds", type=float, default=28.0)
+    """Main function for music generation subprocess"""
+    ap = argparse.ArgumentParser(description="MusicGen Music Generation")
+    ap.add_argument("--prompt", type=str, required=True, help="Text prompt for music generation")
+    ap.add_argument("--seed", type=int, required=True, help="Random seed for reproducibility")
+    ap.add_argument("--output_dir", type=str, default="output", help="Output directory for generated files")
+    ap.add_argument("--seconds", type=float, default=25.0, help="Duration in seconds")
 
     args = ap.parse_args()
 
-    output_seconds = 25
-    seed = args.seed
+    # Configure logging to output to stdout for better subprocess visibility
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
 
-    outdir = Path("output")
-    outdir.mkdir(parents=True, exist_ok=True)
+    try:
+        logger.info("Starting MusicGen processing")
+        logger.info(f"Prompt: {args.prompt}")
+        logger.info(f"Seed: {args.seed}")
+        logger.info(f"Duration: {args.seconds}s")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    proc = AutoProcessor.from_pretrained(MODEL_ID)
-    model = MusicgenForConditionalGeneration.from_pretrained(MODEL_ID).to(device)
+        output_seconds = args.seconds
+        seed = args.seed
 
-    max_new_tokens = int(TOKENS_PER_SEC * output_seconds)
-    inputs = proc(text=[args.prompt], padding=True, return_tensors="pt").to(device)
+        outdir = Path(args.output_dir)
+        outdir.mkdir(parents=True, exist_ok=True)
 
-    take_idx = 0
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Using device: {device}")
 
-    # Make CUDA less random-ish
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
+        proc = AutoProcessor.from_pretrained(MODEL_ID)
+        model = MusicgenForConditionalGeneration.from_pretrained(MODEL_ID).to(device)
 
-    with torch.no_grad():
-        for p in PRESETS:
-            # transformers 4.57.1 ignores `generator`, so seed globally per take
-            set_seed(int(seed))
-            torch.cuda.manual_seed_all(int(seed))
+        max_new_tokens = int(TOKENS_PER_SEC * output_seconds)
+        inputs = proc(text=[args.prompt], padding=True, return_tensors="pt").to(device)
 
-            audio = model.generate(
-                **inputs,
-                do_sample=True,
-                guidance_scale=float(p["guidance_scale"]),
-                top_k=int(p["top_k"]),
-                top_p=float(p["top_p"]),
-                typical_p=float(p["typical_p"]),
-                temperature=float(p["temperature"]),
-                max_new_tokens=max_new_tokens,
-            )
-            sr = model.config.audio_encoder.sampling_rate  # 32000
-            y = to_mono_float(audio)
+        take_idx = 0
 
-            # Silence guard
-            peak = float(np.max(np.abs(y)))
-            rms_db = dbfs(y)
-            is_silent = (peak < SILENCE_PEAK_THRESH) or (rms_db < SILENCE_RMS_DBFS)
+        # Make CUDA less random-ish
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
-            # Normalize if not silent, so you can actually hear the bed
-            if not is_silent:
-                y = peak_normalize(y, NORMALIZE_DBFS)
+        with torch.no_grad():
+            for p in PRESETS:
+                # transformers 4.57.1 ignores `generator`, so seed globally per take
+                set_seed(int(seed))
+                torch.cuda.manual_seed_all(int(seed))
 
-            fname = f"take_{take_idx:02d}_g{p['guidance_scale']}_k{p['top_k']}_p{p['top_p']}_t{p['temperature']}_seed{seed}.wav"
-            path = outdir / fname
-            wav.write(path.as_posix(), sr, float_to_int16(y))
+                logger.info(f"Generating take {take_idx + 1}/{len(PRESETS)} with preset: {p}")
 
-            take_idx += 1
+                audio = model.generate(
+                    **inputs,
+                    do_sample=True,
+                    guidance_scale=float(p["guidance_scale"]),
+                    top_k=int(p["top_k"]),
+                    top_p=float(p["top_p"]),
+                    typical_p=float(p["typical_p"]),
+                    temperature=float(p["temperature"]),
+                    max_new_tokens=max_new_tokens,
+                )
+                sr = model.config.audio_encoder.sampling_rate  # 32000
+                y = to_mono_float(audio)
 
-    print(f"Done. Wrote {take_idx} files to {outdir}")
+                # Silence guard
+                peak = float(np.max(np.abs(y)))
+                rms_db = dbfs(y)
+                is_silent = (peak < SILENCE_PEAK_THRESH) or (rms_db < SILENCE_RMS_DBFS)
+
+                # Normalize if not silent, so you can actually hear the bed
+                if not is_silent:
+                    y = peak_normalize(y, NORMALIZE_DBFS)
+
+                # Convert to torch tensor for torchaudio (expects 2D: [channels, samples])
+                y_tensor = torch.from_numpy(y).float().unsqueeze(0)  # Add channel dimension
+
+                fname = f"take_{take_idx:02d}_g{p['guidance_scale']}_k{p['top_k']}_p{p['top_p']}_t{p['temperature']}_seed{seed}.mp3"
+                path = outdir / fname
+
+                # Save as MP3 using torchaudio
+                torchaudio.save(path.as_posix(), y_tensor, sr, format="mp3")
+                logger.info(f"Saved: {fname}")
+
+                take_idx += 1
+
+        logger.info(f"Done. Wrote {take_idx} files to {outdir}")
+        print(f"SUCCESS: Generated {take_idx} music files in {outdir}")
+        sys.exit(0)
+
+    except (RuntimeError, ValueError, OSError) as e:
+        logger.error(f"Error during music generation: {e}")
+        print(f"ERROR: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user")
+        print("Process interrupted by user")
+        sys.exit(1)
+    except Exception as e:  # pylint: disable=broad-except
+        logger.error(f"Unexpected error: {e}")
+        print(f"ERROR: Unexpected error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
