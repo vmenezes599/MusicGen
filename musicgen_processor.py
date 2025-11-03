@@ -32,11 +32,13 @@ logger = logging.getLogger("musicgen_processor")
 
 
 def dbfs(x: np.ndarray) -> float:
+    """Calculate dBFS of audio signal."""
     rms = np.sqrt(np.mean(x**2) + 1e-12)
     return 20.0 * np.log10(rms + 1e-12)
 
 
 def peak_normalize(y: np.ndarray, target_dbfs: float) -> np.ndarray:
+    """Peak normalize audio to target dBFS."""
     peak = float(np.max(np.abs(y)))
     if peak < 1e-12:
         return y
@@ -46,6 +48,7 @@ def peak_normalize(y: np.ndarray, target_dbfs: float) -> np.ndarray:
 
 
 def to_mono_float(audio_tensor: torch.Tensor) -> np.ndarray:
+    """Convert audio tensor to mono float numpy array in range [-1.0, 1.0]."""
     t = audio_tensor.detach().cpu()
     # Accept (B, L) OR (B, C, L)
     if t.ndim == 2:
@@ -78,9 +81,9 @@ def main():
 
     try:
         logger.info("Starting MusicGen processing")
-        logger.info(f"Prompt: {args.prompt}")
-        logger.info(f"Seed: {args.seed}")
-        logger.info(f"Duration: {args.seconds}s")
+        logger.info("Prompt: %s", args.prompt)
+        logger.info("Seed: %s", args.seed)
+        logger.info("Duration: %ss", args.seconds)
 
         output_seconds = args.seconds
         seed = args.seed
@@ -89,7 +92,7 @@ def main():
         outdir.mkdir(parents=True, exist_ok=True)
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        logger.info(f"Using device: {device}")
+        logger.info("Using device: %s", device)
 
         proc = AutoProcessor.from_pretrained(MODEL_ID)
         model = MusicgenForConditionalGeneration.from_pretrained(MODEL_ID).to(device)
@@ -109,7 +112,7 @@ def main():
                 set_seed(int(seed))
                 torch.cuda.manual_seed_all(int(seed))
 
-                logger.info(f"Generating take {take_idx + 1}/{len(PRESETS)} with preset: {p}")
+                logger.info("Generating take %d/%d with preset: %s", take_idx + 1, len(PRESETS), p)
 
                 audio = model.generate(
                     **inputs,
@@ -127,13 +130,13 @@ def main():
                 # Check audio levels before normalization
                 peak = float(np.max(np.abs(y)))
                 rms_db = dbfs(y)
-                logger.info(f"Take {take_idx + 1} - Peak: {peak:.6f}, RMS: {rms_db:.2f} dBFS")
+                logger.info("Take %d - Peak: %.6f, RMS: %.2f dBFS", take_idx + 1, peak, rms_db)
 
                 # Silence guard - check if truly silent (dead silence, not just quiet)
                 is_dead_silent = peak < SILENCE_PEAK_THRESH
 
                 if is_dead_silent:
-                    logger.warning(f"Take {take_idx + 1} is dead silent (peak < {SILENCE_PEAK_THRESH}), skipping")
+                    logger.warning("Take %d is dead silent (peak < %s), skipping", take_idx + 1, SILENCE_PEAK_THRESH)
                     take_idx += 1
                     continue
 
@@ -143,7 +146,7 @@ def main():
                 # Log after normalization
                 peak_after = float(np.max(np.abs(y)))
                 rms_db_after = dbfs(y)
-                logger.info(f"After normalization - Peak: {peak_after:.6f}, RMS: {rms_db_after:.2f} dBFS")
+                logger.info("After normalization - Peak: %.6f, RMS: %.2f dBFS", peak_after, rms_db_after)
 
                 # Convert to torch tensor for torchaudio (expects 2D: [channels, samples])
                 y_tensor = torch.from_numpy(y).float().unsqueeze(0)  # Add channel dimension
@@ -153,16 +156,16 @@ def main():
 
                 # Save as MP3 using torchaudio
                 torchaudio.save(path.as_posix(), y_tensor, sr, format="mp3")
-                logger.info(f"Saved: {fname}")
+                logger.info("Saved: %s", fname)
 
                 take_idx += 1
 
-        logger.info(f"Done. Wrote {take_idx} files to {outdir}")
+        logger.info("Done. Wrote %d files to %s", take_idx, outdir)
         print(f"SUCCESS: Generated {take_idx} music files in {outdir}")
         sys.exit(0)
 
     except (RuntimeError, ValueError, OSError) as e:
-        logger.error(f"Error during music generation: {e}")
+        logger.error("Error during music generation: %s", e)
         print(f"ERROR: {e}")
         sys.exit(1)
     except KeyboardInterrupt:
@@ -170,7 +173,7 @@ def main():
         print("Process interrupted by user")
         sys.exit(1)
     except Exception as e:  # pylint: disable=broad-except
-        logger.error(f"Unexpected error: {e}")
+        logger.error("Unexpected error: %s", e)
         print(f"ERROR: Unexpected error: {e}")
         sys.exit(1)
 

@@ -1,6 +1,7 @@
 """Client script to send text-to-music requests to a MusicGen server."""
 
 import argparse
+import tempfile
 from pathlib import Path
 from zipfile import ZipFile
 import requests
@@ -26,26 +27,24 @@ class Client:
         self,
         prompt: str,
         seed: int,
-        seconds: float = 30.0,
-        output_path: str | Path | None = None,
-    ) -> bytes | bool | None:
+        seconds: float,
+        output_path: str | Path,
+    ) -> bool:
         """
         Generate music from text prompt.
 
         Args:
             prompt: Text prompt for music generation
             seed: Random seed for generation
-            seconds: Duration in seconds (default: 30.0)
-            output_path: Optional output path to save the ZIP file containing MP3s
+            seconds: Duration in seconds
+            output_path: Output directory path to save the extracted MP3 files
 
         Returns:
-            If output_path is provided, returns True on success, False on failure.
-            If output_path is None, returns the ZIP file bytes on success, None on failure.
+            True on success, False on failure.
         """
-        # Create output directory if output_path is provided
-        if output_path:
-            output_path = Path(output_path)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Convert to Path and create output directory
+        output_path = Path(output_path)
+        output_path.mkdir(parents=True, exist_ok=True)
 
         url = f"{self._base_url}/ttm"
 
@@ -60,37 +59,27 @@ class Client:
             response = requests.post(url, data=data, stream=True, timeout=self._default_timeout)
 
             if response.status_code == 200:
-                if output_path:
-                    # Save ZIP to file
-                    with open(output_path, "wb") as f:
-                        for chunk in response.iter_content(chunk_size=8192):
-                            f.write(chunk)
-                    print(f"Music ZIP saved to {output_path}")
-                    
-                    # Unzip the file to the output directory
-                    output_dir = output_path.parent / output_path.stem
-                    output_dir.mkdir(parents=True, exist_ok=True)
-                    
-                    with ZipFile(output_path, "r") as zipf:
-                        zipf.extractall(output_dir)
-                    
-                    print(f"Music files extracted to {output_dir}")
-                    
-                    # Delete the ZIP file after extraction
-                    output_path.unlink()
-                    print(f"Deleted ZIP file: {output_path}")
-                    
-                    return True
-                else:
-                    # Return ZIP bytes
-                    return response.content
+                with tempfile.NamedTemporaryFile(suffix=".zip", prefix="musicgen_") as temp_zip:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        temp_zip.write(chunk)
+                    temp_zip.flush()
+                    temp_zip_path = Path(temp_zip.name)
+
+                    print(f"Music ZIP saved to {temp_zip_path}")
+
+                    with ZipFile(temp_zip_path, "r") as zipf:
+                        zipf.extractall(output_path)
+
+                    print(f"Music files extracted to {output_path}")
+
+                return True
             else:
                 print(f"Error: {response.status_code} - {response.text}")
-                return False if output_path else None
+                return False
 
         except (requests.RequestException, IOError) as e:
             print(f"Error during request: {e}")
-            return False if output_path else None
+            return False
 
     def test_connection(self) -> bool:
         """
@@ -118,7 +107,7 @@ def main():
         "--output_path",
         type=str,
         required=True,
-        help="Output path for generated music ZIP file",
+        help="Output directory path for generated music files",
     )
     args = parser.parse_args()
 
@@ -137,5 +126,5 @@ def main():
 
 if __name__ == "__main__":
     # Example usage:
-    # python client.py --host 127.0.0.1 --port 8189 --prompt "upbeat electronic music" --seed 42 --seconds 30.0 --output_path ./output/music.zip
+    # python client.py --host 127.0.0.1 --port 8189 --prompt "upbeat electronic music" --seed 42 --seconds 30.0 --output_path ./output/music
     main()

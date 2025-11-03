@@ -38,7 +38,7 @@ def main():
             "prompt": prompt,
             "seed": 42 + i,  # Different seed for each request
             "seconds": 30.0,
-            "output_path": f"output/test_music_{i}.zip",
+            "output_path": "output",
         }
         test_requests.append(test_request)
 
