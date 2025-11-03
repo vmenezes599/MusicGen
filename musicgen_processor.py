@@ -128,10 +128,10 @@ def main():
                 peak = float(np.max(np.abs(y)))
                 rms_db = dbfs(y)
                 logger.info(f"Take {take_idx + 1} - Peak: {peak:.6f}, RMS: {rms_db:.2f} dBFS")
-                
+
                 # Silence guard - check if truly silent (dead silence, not just quiet)
-                is_dead_silent = (peak < SILENCE_PEAK_THRESH)
-                
+                is_dead_silent = peak < SILENCE_PEAK_THRESH
+
                 if is_dead_silent:
                     logger.warning(f"Take {take_idx + 1} is dead silent (peak < {SILENCE_PEAK_THRESH}), skipping")
                     take_idx += 1
@@ -139,7 +139,7 @@ def main():
 
                 # Always normalize to make audio audible
                 y = peak_normalize(y, NORMALIZE_DBFS)
-                
+
                 # Log after normalization
                 peak_after = float(np.max(np.abs(y)))
                 rms_db_after = dbfs(y)

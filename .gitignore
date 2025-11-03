@@ -5,6 +5,7 @@
 __pycache__/
 *.py[oc]
 build/
+output
 dist/
 wheels/
 *.egg-info
@@ -14,6 +15,7 @@ wheels/
 
 # Virtual environments
 .venv
+.musicgen-venv
 
 # Misc.
 .ipynb_checkpoints/

@@ -1,6 +1,9 @@
-scipy
-asyncio
 fastapi
+uvicorn
+python-multipart
+numpy
 torch
 torchaudio
+torchcodec
+requests
 transformers
