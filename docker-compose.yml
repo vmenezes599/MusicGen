@@ -10,7 +10,6 @@ services:
       PYTHONPATH: /app
       NVIDIA_VISIBLE_DEVICES: GPU-bfe56291-e722-318b-fbc0-526eb8393bf3
       NVIDIA_DRIVER_CAPABILITIES: compute,utility
-      GRADIO_SHARE: "False"
     networks:
       - services_network
       - dev_services_network

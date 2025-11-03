@@ -87,6 +87,8 @@ def main():
 
         output_seconds = args.seconds
         seed = args.seed
+        if seed > (2**31):
+            raise ValueError("Seed must be between 0 and 2^31 - 1")
 
         outdir = Path(args.output_dir)
         outdir.mkdir(parents=True, exist_ok=True)

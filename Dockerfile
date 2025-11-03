@@ -2,7 +2,7 @@ FROM pytorch/pytorch:2.9.0-cuda12.8-cudnn9-runtime
 
 # Install system dependencies
 RUN apt update && \
-    apt install -y curl && \
+    apt install -y curl ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
