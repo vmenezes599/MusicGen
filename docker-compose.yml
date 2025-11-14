@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: musicgen_server
+    labels:
+      autoheal: "true"
     command: [ "python3", "-m", "generic_ai_server_client.server", "--port", "8190" ]
     gpus: all
     environment:
